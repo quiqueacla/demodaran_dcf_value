@@ -42,8 +42,14 @@ def _beta_txt(det: dict) -> str:
 
 
 def summary_row(r: ValuationResult) -> dict:
-    return {
+    c, inp = r.coc, r.model.inputs
+    fin = r.model_type != "general"
+    sc = r.scenarios or {}
+    bear = sc.get("bajista", {}).get("value_per_share", float("nan"))
+    bull = sc.get("alcista", {}).get("value_per_share", float("nan"))
+    row = {
         "ticker": r.ticker, "nombre": r.name, "modelo": r.model_type, "divisa": r.currency,
+<<<<<<< HEAD
         "precio": round(r.price, 4), "valor_intrinseco": round(r.value_per_share, 4),
         "potencial": round(r.upside, 4), "comprar_por_debajo_de": round(r.buy_below, 4),
         "veredicto": r.verdict,
@@ -53,8 +59,38 @@ def summary_row(r: ValuationResult) -> dict:
         "alcista": round(r.scenarios.get("alcista", {}).get("value_per_share", float("nan")), 4),
         "tasa_descuento": round(r.coc.ke if r.model_type != "general" else r.coc.wacc, 4),
         "g_terminal": round(r.coc.terminal_growth, 4),
+=======
+        "precio": r.price,
+        "bajista": bear, "neutro": r.value_per_share, "alcista": bull,
+        "potencial_bajista": bear / r.price - 1, "potencial": r.upside,
+        "potencial_alcista": bull / r.price - 1,
+        "valor_intrinseco": r.value_per_share,
+        "comprar_por_debajo_de": r.buy_below,
+        "veredicto": r.verdict, "fiabilidad": r.confidence,
+        "motivos_fiabilidad": "; ".join(r.confidence_reasons),
+        # parámetros
+        "rf": c.rf, "erp": c.erp, "crp": c.crp,
+        "beta": c.beta, "beta_terminal": c.beta_detail.get("beta_terminal", float("nan")),
+        "ke": c.ke, "ke_terminal": c.ke_terminal,
+        "wacc": float("nan") if fin else c.wacc,
+        "wacc_terminal": float("nan") if fin else c.wacc_terminal,
+        "kd_despues_imp": float("nan") if fin else c.kd_after,
+        "deuda_sobre_capital": float("nan") if fin else c.wd,
+        "rating_sintetico": "n/a" if fin else c.rating,
+        "g_terminal": c.terminal_growth,
+        "tasa_descuento": c.ke if fin else c.wacc,
+>>>>>>> c8ced069d77fc5e08834e1e8b461789c82c95867
         "fecha": r.date,
     }
+    if fin:
+        row.update(crec_inicial=inp["roe0"] * (1 - inp["payout0"]), roe_inicial=inp["roe0"],
+                   roe_terminal=inp["terminal_roe"], payout_inicial=inp["payout0"],
+                   pvc_mercado=inp["market_pbv"])
+    else:
+        row.update(crec_inicial=inp["g0"], margen_actual=inp["margin0"],
+                   margen_objetivo=inp["target_margin"], ventas_capital=inp["sales_to_capital"],
+                   roic_actual=inp["roic0"], roic_terminal=inp["terminal_roic"])
+    return row
 
 
 def console(r: ValuationResult) -> str:
@@ -229,6 +265,7 @@ def write_all(results: list[ValuationResult], out_dir: str | Path, fmt=("md", "j
                                                          default=str), encoding="utf-8")
     if results:
         df = pd.DataFrame([summary_row(r) for r in results]).sort_values("potencial", ascending=False)
+<<<<<<< HEAD
         df.to_csv(out / "resumen.csv", index=False)
         lines = ["# Resumen de valoraciones", "",
                  "| # | Ticker | Nombre | Modelo | Precio | Valor | Potencial | Comprar < | Veredicto | Fiabilidad |",
@@ -237,4 +274,66 @@ def write_all(results: list[ValuationResult], out_dir: str | Path, fmt=("md", "j
             lines.append(f"| {i} | {x.ticker} | {x.nombre} | {x.modelo} | {_n(x.precio)} {x.divisa} | "
                          f"{_n(x.valor_intrinseco)} | {_p(x.potencial)} | {_n(x.comprar_por_debajo_de)} | {x.veredicto} | {x.fiabilidad} |")
         (out / "resumen.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
+=======
+        df.round(4).to_csv(out / "resumen.csv", index=False)
+        (out / "resumen.md").write_text(summary_markdown(df, results), encoding="utf-8")
+>>>>>>> c8ced069d77fc5e08834e1e8b461789c82c95867
     return out
+
+
+SCENARIO_LEGEND = """**Definición de escenarios** (el neutro es el caso base del modelo):
+
+| Escenario | No financieras (FCFF) | Bancos y aseguradoras |
+|---|---|---|
+| Bajista | Crecimiento inicial − máx(3 pp, 50 % de g0); margen objetivo × 0,85; WACC + 1 pp | ROE inicial − 2 pp; ROE terminal − 1,5 pp; Ke + 1 pp |
+| Neutro | Supuestos base (consenso de analistas, márgenes normalizados) | ROE normalizado (50 % TTM + 50 % media 3 años) |
+| Alcista | Crecimiento inicial + máx(2 pp, 30 % de g0); margen objetivo × 1,10; WACC − 0,5 pp | ROE inicial + 2 pp; ROE terminal + 1 pp; Ke − 0,5 pp |
+"""
+
+
+def summary_markdown(df: pd.DataFrame, results) -> str:
+    date = results[0].date
+    r0 = results[0]
+    L = [f"# Resumen de valoraciones — {date}", "",
+         f"Ordenado de más a menos infravalorada según el escenario neutro. "
+         f"Margen de seguridad para el precio de compra: {r0.assumptions.margin_of_safety:.0%}.", "",
+         "## 1. Valoración por escenarios", "",
+         "| # | Ticker | Nombre | Precio | Bajista | **Neutro** | Alcista | Pot. bajista | **Pot. neutro** | Pot. alcista | Comprar < | Veredicto | Fiabilidad |",
+         "|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+    for i, (_, x) in enumerate(df.iterrows(), 1):
+        L.append(f"| {i} | {x.ticker} | {x.nombre} | {_n(x.precio)} {x.divisa} | {_n(x.bajista)} | "
+                 f"**{_n(x.neutro)}** | {_n(x.alcista)} | {_p(x.potencial_bajista)} | **{_p(x.potencial)}** | "
+                 f"{_p(x.potencial_alcista)} | {_n(x.comprar_por_debajo_de)} | {x.veredicto} | {x.fiabilidad} |")
+    L += ["", SCENARIO_LEGEND, ""]
+
+    gen = df[df.modelo == "general"]
+    fin = df[df.modelo != "general"]
+    if len(gen):
+        L += ["## 2. Parámetros usados — no financieras (FCFF)", "",
+              "| Ticker | Rf | ERP | CRP | β | β term. | Ke | Kd (desp. imp.) | D/V | Rating | **WACC** | WACC term. | Crec. inicial | Margen actual → objetivo | Ventas/capital | ROIC actual → term. | g terminal |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for _, x in gen.iterrows():
+            L.append(f"| {x.ticker} | {_p(x.rf, 2)} | {_p(x.erp, 2)} | {_p(x.crp, 2)} | {x.beta:.2f} | "
+                     f"{x.beta_terminal:.2f} | {_p(x.ke, 2)} | {_p(x.kd_despues_imp, 2)} | {_p(x.deuda_sobre_capital, 0)} | "
+                     f"{x.rating_sintetico} | **{_p(x.wacc, 2)}** | {_p(x.wacc_terminal, 2)} | {_p(x.crec_inicial)} | "
+                     f"{_p(x.margen_actual)} → {_p(x.margen_objetivo)} | {_n(x.ventas_capital)} | "
+                     f"{_p(x.roic_actual)} → {_p(x.roic_terminal)} | {_p(x.g_terminal, 2)} |")
+        L.append("")
+    if len(fin):
+        L += ["## 3. Parámetros usados — bancos y aseguradoras", "",
+              "| Ticker | Modelo | Rf | ERP | CRP | β | β term. | **Ke** | Ke term. | ROE inicial → terminal | Payout inicial | Crec. inicial (ROE·retención) | P/VC mercado | g terminal |",
+              "|---|---|---|---|---|---|---|---|---|---|---|---|---|---|"]
+        for _, x in fin.iterrows():
+            L.append(f"| {x.ticker} | {x.modelo} | {_p(x.rf, 2)} | {_p(x.erp, 2)} | {_p(x.crp, 2)} | {x.beta:.2f} | "
+                     f"{x.beta_terminal:.2f} | **{_p(x.ke, 2)}** | {_p(x.ke_terminal, 2)} | "
+                     f"{_p(x.roe_inicial)} → {_p(x.roe_terminal)} | {_p(x.payout_inicial)} | {_p(x.crec_inicial)} | "
+                     f"{_n(x.pvc_mercado)} | {_p(x.g_terminal, 2)} |")
+        L.append("")
+    L += ["## 4. Notas de método", "",
+          "- Ke = Rf + β·ERP + CRP. β = media de regresión ajustada (Blume) y *bottom-up* sectorial reapalancada; en estable se acota a [0,8; 1,2].",
+          "- WACC con pesos de mercado; Kd = Rf + spread del rating sintético (cobertura de intereses), después de impuestos al tipo marginal.",
+          "- Fase de alto crecimiento 5 años y convergencia lineal hasta el año 10; g terminal = mín(Rf, 2,5 %).",
+          "- Bancos: 50 % Excess Return + 30 % DDM de pago total + 20 % P/VC justificado, descontados a Ke.",
+          "- Fiabilidad *baja*: el modelo no recoge bien la compañía (ver `motivos_fiabilidad` en resumen.csv y avisos en cada informe).",
+          "", "*Modelo educativo, no constituye recomendación de inversión.*", ""]
+    return "\n".join(L)
