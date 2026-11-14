@@ -49,17 +49,6 @@ def summary_row(r: ValuationResult) -> dict:
     bull = sc.get("alcista", {}).get("value_per_share", float("nan"))
     row = {
         "ticker": r.ticker, "nombre": r.name, "modelo": r.model_type, "divisa": r.currency,
-<<<<<<< HEAD
-        "precio": round(r.price, 4), "valor_intrinseco": round(r.value_per_share, 4),
-        "potencial": round(r.upside, 4), "comprar_por_debajo_de": round(r.buy_below, 4),
-        "veredicto": r.verdict,
-        "fiabilidad": r.confidence,
-        "motivos_fiabilidad": "; ".join(r.confidence_reasons),
-        "bajista": round(r.scenarios.get("bajista", {}).get("value_per_share", float("nan")), 4),
-        "alcista": round(r.scenarios.get("alcista", {}).get("value_per_share", float("nan")), 4),
-        "tasa_descuento": round(r.coc.ke if r.model_type != "general" else r.coc.wacc, 4),
-        "g_terminal": round(r.coc.terminal_growth, 4),
-=======
         "precio": r.price,
         "bajista": bear, "neutro": r.value_per_share, "alcista": bull,
         "potencial_bajista": bear / r.price - 1, "potencial": r.upside,
@@ -79,7 +68,6 @@ def summary_row(r: ValuationResult) -> dict:
         "rating_sintetico": "n/a" if fin else c.rating,
         "g_terminal": c.terminal_growth,
         "tasa_descuento": c.ke if fin else c.wacc,
->>>>>>> c8ced069d77fc5e08834e1e8b461789c82c95867
         "fecha": r.date,
     }
     if fin:
@@ -265,19 +253,8 @@ def write_all(results: list[ValuationResult], out_dir: str | Path, fmt=("md", "j
                                                          default=str), encoding="utf-8")
     if results:
         df = pd.DataFrame([summary_row(r) for r in results]).sort_values("potencial", ascending=False)
-<<<<<<< HEAD
-        df.to_csv(out / "resumen.csv", index=False)
-        lines = ["# Resumen de valoraciones", "",
-                 "| # | Ticker | Nombre | Modelo | Precio | Valor | Potencial | Comprar < | Veredicto | Fiabilidad |",
-                 "|---|---|---|---|---|---|---|---|---|---|"]
-        for i, (_, x) in enumerate(df.iterrows(), 1):
-            lines.append(f"| {i} | {x.ticker} | {x.nombre} | {x.modelo} | {_n(x.precio)} {x.divisa} | "
-                         f"{_n(x.valor_intrinseco)} | {_p(x.potencial)} | {_n(x.comprar_por_debajo_de)} | {x.veredicto} | {x.fiabilidad} |")
-        (out / "resumen.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
-=======
         df.round(4).to_csv(out / "resumen.csv", index=False)
         (out / "resumen.md").write_text(summary_markdown(df, results), encoding="utf-8")
->>>>>>> c8ced069d77fc5e08834e1e8b461789c82c95867
     return out
 
 
