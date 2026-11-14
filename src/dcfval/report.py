@@ -47,6 +47,8 @@ def summary_row(r: ValuationResult) -> dict:
         "precio": round(r.price, 4), "valor_intrinseco": round(r.value_per_share, 4),
         "potencial": round(r.upside, 4), "comprar_por_debajo_de": round(r.buy_below, 4),
         "veredicto": r.verdict,
+        "fiabilidad": r.confidence,
+        "motivos_fiabilidad": "; ".join(r.confidence_reasons),
         "bajista": round(r.scenarios.get("bajista", {}).get("value_per_share", float("nan")), 4),
         "alcista": round(r.scenarios.get("alcista", {}).get("value_per_share", float("nan")), 4),
         "tasa_descuento": round(r.coc.ke if r.model_type != "general" else r.coc.wacc, 4),
@@ -63,7 +65,7 @@ def console(r: ValuationResult) -> str:
         f"Precio: {_n(r.price)} {r.currency}   Valor intrínseco: {_n(r.value_per_share)} {r.currency}"
         f"   Potencial: {_p(r.upside)}",
         f"Comprar por debajo de (MoS {r.assumptions.margin_of_safety:.0%}): {_n(r.buy_below)}",
-        f"Veredicto: {r.verdict}",
+        f"Veredicto: {r.verdict}   Fiabilidad: {r.confidence}",
         f"{rate[0]}: {_p(rate[1], 2)}  Rf: {_p(r.coc.rf, 2)}  Beta: {r.coc.beta:.2f}  "
         f"ERP: {_p(r.coc.erp, 2)}  CRP: {_p(r.coc.crp, 2)}  g: {_p(r.coc.terminal_growth, 2)}",
     ]
@@ -89,7 +91,8 @@ def markdown(r: ValuationResult) -> str:
            f"| **Valor intrínseco por acción** | **{_n(r.value_per_share)} {r.currency}** |",
            f"| Potencial | {_p(r.upside)} |",
            f"| Precio de compra con MoS {a.margin_of_safety:.0%} | {_n(r.buy_below)} {r.currency} |",
-           f"| **Veredicto** | **{r.verdict}** |", ""]
+           f"| **Veredicto** | **{r.verdict}** |",
+           f"| Fiabilidad del modelo | {r.confidence}" + (f" — {'; '.join(r.confidence_reasons)}" if r.confidence_reasons else "") + " |", ""]
 
     out += ["## Coste de capital", "", "| Parámetro | Valor | Fuente / detalle |", "|---|---|---|",
             f"| Tipo libre de riesgo ({d.financial_currency}) | {_p(c.rf, 2)} | {c.sources.get('rf')} |",
@@ -228,10 +231,10 @@ def write_all(results: list[ValuationResult], out_dir: str | Path, fmt=("md", "j
         df = pd.DataFrame([summary_row(r) for r in results]).sort_values("potencial", ascending=False)
         df.to_csv(out / "resumen.csv", index=False)
         lines = ["# Resumen de valoraciones", "",
-                 "| Ticker | Nombre | Modelo | Precio | Valor | Potencial | Comprar < | Veredicto |",
-                 "|---|---|---|---|---|---|---|---|"]
-        for _, x in df.iterrows():
-            lines.append(f"| {x.ticker} | {x.nombre} | {x.modelo} | {_n(x.precio)} {x.divisa} | "
-                         f"{_n(x.valor_intrinseco)} | {_p(x.potencial)} | {_n(x.comprar_por_debajo_de)} | {x.veredicto} |")
+                 "| # | Ticker | Nombre | Modelo | Precio | Valor | Potencial | Comprar < | Veredicto | Fiabilidad |",
+                 "|---|---|---|---|---|---|---|---|---|---|"]
+        for i, (_, x) in enumerate(df.iterrows(), 1):
+            lines.append(f"| {i} | {x.ticker} | {x.nombre} | {x.modelo} | {_n(x.precio)} {x.divisa} | "
+                         f"{_n(x.valor_intrinseco)} | {_p(x.potencial)} | {_n(x.comprar_por_debajo_de)} | {x.veredicto} | {x.fiabilidad} |")
         (out / "resumen.md").write_text("\n".join(lines) + "\n", encoding="utf-8")
     return out

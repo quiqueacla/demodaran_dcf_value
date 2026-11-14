@@ -8,7 +8,7 @@ import pandas as pd
 
 from .config import Assumptions
 from .data import yahoo, sec
-from .data.base import CompanyData
+from .data.base import CompanyData, nz
 from .models import fcff, financials
 from .models.classify import classify
 from .models.discount import CostOfCapital, cost_of_capital
@@ -32,6 +32,8 @@ class ValuationResult:
     sensitivity: pd.DataFrame | None = None
     reverse: dict = field(default_factory=dict)
     warnings: list = field(default_factory=list)
+    confidence: str = "alta"
+    confidence_reasons: list = field(default_factory=list)
     date: str = field(default_factory=lambda: dt.date.today().isoformat())
 
     @property
@@ -142,6 +144,39 @@ def _reverse(d, a: Assumptions, mtype, coc):
     return out
 
 
+REIT_PREFIX = ("REIT", "Real Estate")
+
+
+def _confidence(d: CompanyData, mtype: str, res, vps: float) -> tuple[str, list]:
+    """Fiabilidad del modelo para esta compañía (alta / media / baja)."""
+    bad, mid = [], []
+    if vps <= 0:
+        bad.append("valor negativo: el modelo no recoge bien esta compañía")
+    if mtype == "general":
+        inp = res.inputs
+        if (d.industry or "").startswith(REIT_PREFIX):
+            bad.append("inmobiliaria/SOCIMI: valorar por NAV (EPRA NTA) mejor que por FCFF")
+        if inp["margin0"] > 0.80:
+            bad.append("margen EBIT >80 %: datos contables de Yahoo poco fiables")
+        if inp["roic0"] == inp["roic0"] and inp["roic0"] < 0.03:
+            bad.append(f"ROIC actual {inp['roic0']:.1%}: EBIT deprimido (amortizaciones/ciclo)")
+        mcap = d.market_cap_fin
+        if mcap > 0 and nz(d.equity_investments) / mcap > 0.08:
+            mid.append("participadas relevantes a valor contable: considerar suma de partes")
+        if inp["sales_to_capital"] <= 0.31 or inp["sales_to_capital"] >= 5.99:
+            mid.append("ventas/capital en el límite del rango: revisar")
+        if not (0 <= res.terminal_share <= 0.85):
+            mid.append(f"valor terminal = {res.terminal_share:.0%} del valor operativo")
+        if inp.get("cyclical"):
+            mid.append("cíclica: margen normalizado con pocos años")
+        if abs(inp["margin0"] - inp["margin_hist_avg"]) > 0.05:
+            mid.append("margen actual muy distinto del histórico")
+    if any("TTM" in w and "anual" in w for w in d.warnings):
+        mid.append("TTM anómalo frente al último anual")
+    level = "baja" if bad else ("media" if len(mid) >= 1 else "alta")
+    return level, bad + mid
+
+
 def value_company(ticker: str, assumptions: Assumptions | None = None,
                   overrides: dict | None = None, model: str | None = None,
                   data: CompanyData | None = None, use_sec: bool = True,
@@ -159,7 +194,8 @@ def value_company(ticker: str, assumptions: Assumptions | None = None,
                          price=d.price, value_per_share=vps, upside=upside,
                          verdict=_verdict(upside, a.margin_of_safety), data=d, coc=coc,
                          assumptions=a, model=res,
-                         warnings=list(d.warnings) + list(res.warnings))
+                         warnings=list(dict.fromkeys(list(d.warnings) + list(res.warnings))))
+    vr.confidence, vr.confidence_reasons = _confidence(d, mtype, res, vps)
     if extras:
         vr.scenarios = _scenarios(d, a, mtype, coc)
         vr.sensitivity = _sensitivity(d, a, mtype, coc)

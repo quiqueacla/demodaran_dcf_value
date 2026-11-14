@@ -127,9 +127,15 @@ def fetch(ticker: str) -> CompanyData:
         d.warnings.append(f"Estados en {d.financial_currency}, cotización en {d.currency} "
                           f"(FX {d.fx_to_price:.4f})")
 
-    shares = info.get("sharesOutstanding") or info.get("impliedSharesOutstanding")
+    # Acciones: con varias clases (Puig, Grifols...) `sharesOutstanding` sólo
+    # recoge una; `impliedSharesOutstanding` las incluye todas.
+    so, imp = nz(info.get("sharesOutstanding")), nz(info.get("impliedSharesOutstanding"))
+    shares = max(so, imp)
     if not shares:
         shares = _last(bsl, ["Ordinary Shares Number", "Share Issued"])
+    if so and imp and imp > so * 1.10:
+        d.warnings.append(f"Varias clases de acciones: se usan {imp / 1e6:,.0f} M (todas las clases) "
+                          f"en lugar de {so / 1e6:,.0f} M; el precio de referencia es el de {ticker}")
     d.shares = float(shares)
     d.market_cap = d.price * d.shares
     d.beta_regression = info.get("beta")
