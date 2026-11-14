@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "dcfval"
+version = "1.0.0"
+description = "Valoración DCF multi-modelo: FCFF (Damodaran) para no financieras y Excess Return/DDM para bancos y aseguradoras"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+dependencies = ["yfinance>=0.2.40", "pandas>=1.5", "numpy", "requests", "pyyaml", "openpyxl"]
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[project.scripts]
+dcfval = "dcfval.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]

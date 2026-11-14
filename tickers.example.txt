@@ -1,0 +1,12 @@
+# Un ticker de Yahoo Finance por línea (# = comentario)
+ITX.MC
+SAN.MC
+BBVA.MC
+IBE.MC
+REP.MC
+GRF.MC
+IAG.MC
+MAP.MC
+AAPL
+MSFT
+JPM

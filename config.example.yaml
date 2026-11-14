@@ -1,0 +1,31 @@
+# Configuración de ejemplo para dcfval
+#   dcfval -c config.example.yaml -f tickers.txt
+# Cualquier clave omitida usa el valor por defecto (ver src/dcfval/config.py).
+# Prioridad: --set en CLI  >  tickers.<TICKER>  >  defaults  >  valores internos
+
+defaults:
+  years: 10                 # horizonte explícito
+  high_growth_years: 5      # años con el crecimiento inicial antes de converger
+  erp: 0.0417               # prima de riesgo madura (Damodaran jul-2026)
+  # rf: 0.0325              # fuerza el tipo libre de riesgo (si no, automático por divisa)
+  terminal_growth_cap: 0.025
+  beta_method: blend        # regression | bottom_up | blend
+  terminal_beta_min: 0.8
+  terminal_beta_max: 1.2
+  margin_of_safety: 0.25
+  include_buybacks: true    # bancos: contar recompras como retorno al accionista
+  bank_weights: {excess_return: 0.5, ddm: 0.3, justified_pbv: 0.2}
+
+tickers:
+  # Aerolínea: los 4 años de Yahoo son post-COVID; normalizamos a un margen de ciclo completo
+  IAG.MC:
+    target_margin: 0.07
+  # Petrolera en pico de ciclo
+  REP.MC:
+    target_margin: 0.06
+  # Multinacional con negocio en emergentes: CRP ponderado por ingresos (aprox.)
+  SAN.MC:
+    crp: 0.022
+  # Forzar modelo de banco/aseguradora si Yahoo clasifica mal la industria
+  # XYZ.MC:
+  #   model: bank
