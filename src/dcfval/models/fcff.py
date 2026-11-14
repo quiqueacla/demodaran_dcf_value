@@ -55,8 +55,13 @@ def base_inputs(d: CompanyData, a: Assumptions, coc: CostOfCapital) -> tuple[dic
     if cyclical:
         w.append(f"Industria cíclica ({d.industry}): margen normalizado a la media de "
                  f"{len(hist_m) + 1} periodos; revisar target_margin con un ciclo completo")
+    if margin0 > 0.80:
+        w.append(f"Margen EBIT {margin0:.0%} no plausible (Yahoo incluye otros ingresos/plusvalías): "
+                 "objetivo limitado al 60 %")
     if a.target_margin is not None:
         target_m = a.target_margin
+    elif margin0 > 0.80:
+        target_m = min(avg_m, 0.60)
     elif cyclical:
         target_m = statistics.mean(hist_m + [margin0])
     else:
