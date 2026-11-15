@@ -3,6 +3,7 @@
 Paquete Python que descarga datos gratuitos (Yahoo Finance y otras fuentes) y valora
 compañías por descuento de flujos eligiendo **el modelo adecuado según el tipo de empresa**:
 
+
 | Tipo (detectado por industria Yahoo) | Modelo |
 |---|---|
 | Industriales, consumo, tecnología, salud, energía, utilities… | **FCFF a 2 etapas** (Damodaran): crecimiento → convergencia, reinversión vía *ventas/capital*, ROIC terminal coherente |
