@@ -181,7 +181,15 @@ def markdown(r: ValuationResult) -> str:
                 "reciente que se usa como año 0 del modelo.*", "",
                 _hist_md(hist), ""]
 
-    out += ["## Proyección", "", _table(m.projection[cols]), ""]
+    proj = m.projection[cols]
+    past = projection_history(r, cols)
+    if past is not None:
+        out += ["## Proyección", "",
+                "*Años −N…−1: ejercicios fiscales históricos; 0: TTM (base del modelo); "
+                "1…N: proyección. «—» = no aplica a históricos.*", "",
+                _table(pd.concat([past, proj.astype(object)])), ""]
+    else:
+        out += ["## Proyección", "", _table(proj), ""]
 
     if r.scenarios:
         out += ["## Escenarios", "", "| Escenario | Valor/acción | Potencial | Supuestos |", "|---|---|---|---|"]
@@ -244,8 +252,8 @@ def _nz0(v):
     return 0.0 if v is None or v != v else v
 
 
-def historical_table(r: ValuationResult) -> pd.DataFrame | None:
-    """Tabla concepto × ejercicio con los históricos anuales + TTM (año base del modelo)."""
+def _hist_rows(r: ValuationResult):
+    """(etiquetas de ejercicio, filas derivadas) de los anuales + TTM, o None si no hay datos."""
     d = r.data
     ah = getattr(d, "annual_hist", None) or {}
     if not ah:
@@ -256,10 +264,39 @@ def historical_table(r: ValuationResult) -> pd.DataFrame | None:
                book_equity=d.book_equity, total_debt=d.total_debt, cash=d.cash,
                invested_capital=d.invested_capital)
     labels = [f"FY {k[:4]}" if k[5:7] == "12" else f"FY {k[:7]}" for k in ah]
-    rows = list(ah.values()) + [ttm]
-    general = r.model_type == "general"
-    der = _derive(rows, general)
-    if general:
+    return labels, _derive(list(ah.values()) + [ttm], r.model_type == "general")
+
+
+# Columnas de la proyección que no tienen equivalente histórico
+_NO_HIST = {"wacc", "pv_fcff", "ke", "excess_return", "pv_excess_return"}
+
+
+def projection_history(r: ValuationResult, cols: list) -> pd.DataFrame | None:
+    """Filas históricas (−N…−1) y TTM (0) con las mismas columnas que la proyección."""
+    h = _hist_rows(r)
+    if h is None:
+        return None
+    _, der = h
+    recs = []
+    for i, y in enumerate(der):
+        y = dict(y)
+        y["book_equity_begin"] = der[i - 1].get("book_equity", float("nan")) if i else float("nan")
+        y["dividends"] = _nz0(y.get("dividends")) + _nz0(y.get("buybacks"))
+        recs.append({c: (None if c in _NO_HIST else y.get(c, float("nan"))) for c in cols})
+    n = len(der) - 1
+    idx = [str(-k) for k in range(n, 0, -1)] + ["0 (TTM)"]
+    df = pd.DataFrame(recs, index=idx, columns=cols, dtype=object)
+    df.index.name = r.model.projection.index.name
+    return df
+
+
+def historical_table(r: ValuationResult) -> pd.DataFrame | None:
+    """Tabla concepto × ejercicio con los históricos anuales + TTM (año base del modelo)."""
+    h = _hist_rows(r)
+    if h is None:
+        return None
+    labels, der = h
+    if r.model_type == "general":
         spec = [("Ingresos", "revenue", "m"), ("Crecimiento ingresos", "growth", "p"),
                 ("EBIT", "ebit", "m"), ("Margen EBIT", "ebit_margin", "p"),
                 ("Tipo impositivo efectivo", "tax_rate", "p"), ("NOPAT", "nopat", "m"),
@@ -298,7 +335,9 @@ def _table(df: pd.DataFrame, money=False) -> str:
     for idx, row in df.iterrows():
         cells = []
         for c, v in row.items():
-            if money:
+            if v is None:
+                cells.append("—")
+            elif money:
                 cells.append(_n(v))
             elif c in pct:
                 cells.append(_p(v))
