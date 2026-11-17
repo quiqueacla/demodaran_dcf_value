@@ -52,6 +52,8 @@ class CompanyData:
     net_income_hist: list = field(default_factory=list)
     equity_hist: list = field(default_factory=list)
     invested_capital_hist: list = field(default_factory=list)
+    # Tabla anual con fecha: {"2023-12-31": {"revenue": .., "ebit": .., ...}, ...} (antiguo -> reciente)
+    annual_hist: dict = field(default_factory=dict)
 
     # Consenso de analistas
     analyst_revenue_growth: Optional[float] = None   # próximo año fiscal

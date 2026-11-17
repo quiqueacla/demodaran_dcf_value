@@ -174,6 +174,13 @@ def markdown(r: ValuationResult) -> str:
         cols = ["roe", "ke", "payout", "book_equity_begin", "net_income", "dividends",
                 "excess_return", "pv_excess_return"]
 
+    hist = historical_table(r)
+    if hist is not None:
+        out += [f"## Históricos anuales (base de la proyección, M {d.financial_currency})", "",
+                "*Ejercicios fiscales de Yahoo Finance; la última columna es el TTM / balance más "
+                "reciente que se usa como año 0 del modelo.*", "",
+                _hist_md(hist), ""]
+
     out += ["## Proyección", "", _table(m.projection[cols]), ""]
 
     if r.scenarios:
@@ -195,6 +202,92 @@ def markdown(r: ValuationResult) -> str:
         out += ["## Avisos", ""] + [f"- {w}" for w in r.warnings] + [""]
     out += ["---", "*Modelo educativo, no constituye recomendación de inversión.*"]
     return "\n".join(out)
+
+
+def _div(a, b):
+    try:
+        return a / b if b and b == b and a == a else float("nan")
+    except TypeError:
+        return float("nan")
+
+
+def _derive(rows: list[dict], general: bool) -> list[dict]:
+    """Añade métricas derivadas a cada periodo (lista antiguo -> reciente)."""
+    out, prev = [], None
+    for x in rows:
+        g = lambda k: x.get(k, float("nan"))  # noqa: E731
+        y = dict(x)
+        y["growth"] = _div(g("revenue"), prev.get("revenue")) - 1 if prev else float("nan")
+        y["ebit_margin"] = _div(g("ebit"), g("revenue"))
+        pt, tp = g("pretax_income"), g("tax_provision")
+        y["tax_rate"] = min(max(tp / pt, 0.0), 0.40) if pt == pt and tp == tp and pt > 0 else float("nan")
+        t = y["tax_rate"] if y["tax_rate"] == y["tax_rate"] else 0.0
+        y["nopat"] = g("ebit") * (1 - t)
+        y["reinvestment"] = (_nz0(g("capex")) - _nz0(g("depreciation")) + _nz0(g("delta_wc")))
+        y["fcff"] = y["nopat"] - y["reinvestment"]
+        ic = g("invested_capital")
+        y["sales_to_capital"] = _div(g("revenue"), ic) if ic == ic and ic > 0 else float("nan")
+        y["roic"] = _div(y["nopat"], ic) if ic == ic and ic > 0 else float("nan")
+        be, pbe = g("book_equity"), (prev or {}).get("book_equity", float("nan"))
+        avg = 0.5 * (be + pbe) if pbe == pbe else be
+        y["roe"] = _div(g("net_income"), avg) if avg == avg and avg > 0 else float("nan")
+        ret = _nz0(g("dividends")) + _nz0(g("buybacks"))
+        ni = g("net_income")
+        y["payout"] = ret / ni if ni == ni and ni > 0 else float("nan")
+        y["equity_growth"] = _div(be, pbe) - 1 if pbe == pbe else float("nan")
+        out.append(y)
+        prev = x
+    return out
+
+
+def _nz0(v):
+    return 0.0 if v is None or v != v else v
+
+
+def historical_table(r: ValuationResult) -> pd.DataFrame | None:
+    """Tabla concepto × ejercicio con los históricos anuales + TTM (año base del modelo)."""
+    d = r.data
+    ah = getattr(d, "annual_hist", None) or {}
+    if not ah:
+        return None
+    ttm = dict(revenue=d.revenue, ebit=d.ebit, pretax_income=d.pretax_income,
+               tax_provision=d.tax_provision, net_income=d.net_income, depreciation=d.depreciation,
+               capex=d.capex, delta_wc=d.delta_wc, dividends=d.dividends_paid, buybacks=d.buybacks,
+               book_equity=d.book_equity, total_debt=d.total_debt, cash=d.cash,
+               invested_capital=d.invested_capital)
+    labels = [f"FY {k[:4]}" if k[5:7] == "12" else f"FY {k[:7]}" for k in ah]
+    rows = list(ah.values()) + [ttm]
+    general = r.model_type == "general"
+    der = _derive(rows, general)
+    if general:
+        spec = [("Ingresos", "revenue", "m"), ("Crecimiento ingresos", "growth", "p"),
+                ("EBIT", "ebit", "m"), ("Margen EBIT", "ebit_margin", "p"),
+                ("Tipo impositivo efectivo", "tax_rate", "p"), ("NOPAT", "nopat", "m"),
+                ("Amortizaciones", "depreciation", "m"), ("Capex", "capex", "m"),
+                ("Δ Circulante", "delta_wc", "m"), ("Reinversión neta", "reinvestment", "m"),
+                ("FCFF", "fcff", "m"), ("Beneficio neto", "net_income", "m"),
+                ("Fondos propios", "book_equity", "m"), ("Deuda", "total_debt", "m"),
+                ("Caja", "cash", "m"), ("Capital invertido", "invested_capital", "m"),
+                ("Ventas / capital", "sales_to_capital", "n"), ("ROIC", "roic", "p")]
+    else:
+        spec = [("Ingresos", "revenue", "m"), ("Beneficio neto", "net_income", "m"),
+                ("Fondos propios", "book_equity", "m"), ("Crec. fondos propios", "equity_growth", "p"),
+                ("ROE (s/ FP medios)", "roe", "p"), ("Dividendos", "dividends", "m"),
+                ("Recompras netas", "buybacks", "m"), ("Payout total", "payout", "p"),
+                ("Tipo impositivo efectivo", "tax_rate", "p")]
+    data = {lab: [y.get(k, float("nan")) for y in der] for lab, k, _ in spec}
+    df = pd.DataFrame(data, index=labels + ["TTM (base)"]).T
+    df.attrs["fmt"] = {lab: f for lab, _, f in spec}
+    return df
+
+
+def _hist_md(df: pd.DataFrame) -> str:
+    fmt = df.attrs.get("fmt", {})
+    L = ["| Concepto | " + " | ".join(df.columns) + " |", "|---|" + "---:|" * len(df.columns)]
+    for lab, row in df.iterrows():
+        f = {"p": _p, "n": _n}.get(fmt.get(lab), _m)
+        L.append(f"| {lab} | " + " | ".join(f(v) for v in row) + " |")
+    return "\n".join(L)
 
 
 def _table(df: pd.DataFrame, money=False) -> str:
@@ -231,6 +324,7 @@ def to_json(r: ValuationResult) -> dict:
         "assumptions": r.assumptions.to_dict(),
         "inputs": m.inputs,
         "components": getattr(m, "components", None),
+        "historical": (lambda h: h.to_dict() if h is not None else None)(historical_table(r)),
         "projection": m.projection.reset_index().to_dict(orient="records"),
         "scenarios": r.scenarios,
         "sensitivity": r.sensitivity.to_dict() if r.sensitivity is not None else None,

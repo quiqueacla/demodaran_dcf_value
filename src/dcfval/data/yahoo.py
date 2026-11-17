@@ -62,6 +62,57 @@ def _hist(df, names, n=5) -> list:
     return [float(x) for x in s.iloc[-n:]] if s is not None else []
 
 
+ANNUAL_ROWS = {
+    # clave: (estado, nombres Yahoo, signo)
+    "revenue": ("inc", ["Total Revenue", "Operating Revenue"], 1),
+    "ebit": ("inc", ["Operating Income", "EBIT"], 1),
+    "pretax_income": ("inc", ["Pretax Income"], 1),
+    "tax_provision": ("inc", ["Tax Provision"], 1),
+    "net_income": ("inc", ["Net Income Common Stockholders", "Net Income"], 1),
+    "depreciation": ("cf", ["Depreciation And Amortization", "Reconciled Depreciation",
+                            "Depreciation Amortization Depletion"], 1),
+    "capex": ("cf", ["Capital Expenditure"], -1),
+    "delta_wc": ("cf", ["Change In Working Capital"], -1),
+    "dividends": ("cf", ["Cash Dividends Paid", "Common Stock Dividend Paid"], -1),
+    "book_equity": ("bs", ["Common Stock Equity", "Stockholders Equity"], 1),
+    "total_debt": ("bs", ["Total Debt"], 1),
+    "cash": ("bs", ["Cash Cash Equivalents And Short Term Investments", "Cash And Cash Equivalents"], 1),
+}
+
+
+def _annual_table(inc, bs, cf, n=5) -> dict:
+    """Históricos anuales alineados por fecha de cierre (últimos `n` ejercicios)."""
+    src = {"inc": inc, "bs": bs, "cf": cf}
+    series = {}
+    for k, (st, names, sign) in ANNUAL_ROWS.items():
+        s = _row(src[st], names)
+        if s is not None:
+            series[k] = s * sign
+    base = series.get("revenue")
+    if base is None:
+        base = series.get("net_income")
+    if base is None:
+        base = series.get("book_equity")
+    if base is None:
+        return {}
+    out = {}
+    for date in base.index[-n:]:
+        rec = {}
+        for k, s in series.items():
+            # tolera pequeñas diferencias de fecha entre estados (±10 días)
+            near = s[(s.index >= date - pd.Timedelta(days=10)) & (s.index <= date + pd.Timedelta(days=10))]
+            rec[k] = float(near.iloc[-1]) if len(near) else float("nan")
+        rep = _row(cf, ["Repurchase Of Capital Stock", "Common Stock Payments"])
+        iss = _row(cf, ["Issuance Of Capital Stock", "Common Stock Issuance"])
+        r = nz(rep.get(date)) if rep is not None else 0.0
+        i = nz(iss.get(date)) if iss is not None else 0.0
+        rec["buybacks"] = max(0.0, -(r + i))
+        rec["invested_capital"] = (rec.get("book_equity", float("nan")) + nz(rec.get("total_debt"))
+                                   - nz(rec.get("cash")))
+        out[pd.Timestamp(date).date().isoformat()] = rec
+    return out
+
+
 def _safe(fn, default=None):
     try:
         return fn()
@@ -185,6 +236,7 @@ def fetch(ticker: str) -> CompanyData:
         if cash is not None:
             ic = ic.sub(cash.reindex(ic.index).fillna(0), fill_value=0)
         d.invested_capital_hist = [float(x) for x in ic.iloc[-5:]]
+    d.annual_hist = _safe(lambda: _annual_table(inc, bs, cf), {}) or {}
 
     # --- Consenso
     re = _safe(lambda: t.revenue_estimate)
